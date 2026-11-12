@@ -1,121 +1,167 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  completeTopic,
+  getRevisions,
+  getSubjects,
+  getTopicsBySubject,
+} from './services/mockData'
+import type { Revision, Subject, Topic } from './types'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [revisions, setRevisions] = useState<Revision[]>([])
+  const [topics, setTopics] = useState<Topic[]>([])
+  const [selectedSubject, setSelectedSubject] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    Promise.all([getSubjects(), getRevisions()])
+      .then(([loadedSubjects, loadedRevisions]) => {
+        setSubjects(loadedSubjects)
+        setRevisions(loadedRevisions)
+        setSelectedSubject(loadedSubjects[0]?.id ?? '')
+      })
+      .catch(() => setError('Unable to load your study plan.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (!selectedSubject) return
+    getTopicsBySubject(selectedSubject)
+      .then(setTopics)
+      .catch(() => setError('Unable to load topics for this subject.'))
+  }, [selectedSubject, subjects])
+
+  const completedTopics = subjects.reduce(
+    (total, subject) => total + subject.completedTopics,
+    0,
+  )
+  const totalTopics = subjects.reduce(
+    (total, subject) => total + subject.totalTopics,
+    0,
+  )
+  const progress = totalTopics ? Math.round((completedTopics / totalTopics) * 100) : 0
+  const selectedSubjectTitle = useMemo(
+    () => subjects.find((subject) => subject.id === selectedSubject)?.title,
+    [subjects, selectedSubject],
+  )
+
+  const markComplete = async (topic: Topic) => {
+    try {
+      const updatedRevisions = await completeTopic(topic.id)
+      setRevisions((current) => [
+        ...current.filter((revision) => revision.topicId !== topic.id),
+        ...updatedRevisions,
+      ])
+      setTopics((current) =>
+        current.map((item) =>
+          item.id === topic.id ? { ...item, status: 'completed' } : item,
+        ),
+      )
+      setSubjects((current) =>
+        current.map((subject) =>
+          subject.id === topic.subjectId &&
+          subject.completedTopics < subject.totalTopics
+            ? { ...subject, completedTopics: subject.completedTopics + 1 }
+            : subject,
+        ),
+      )
+    } catch {
+      setError('Unable to update this topic.')
+    }
+  }
+
+  if (loading) {
+    return <main className="loading">Loading your BCS preparation plan...</main>
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <main className="app-shell">
+      <header className="topbar">
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+          <p className="eyebrow">BCS PREPARATION</p>
+          <h1>Study smarter, every day.</h1>
+          <p className="subtitle">Keep your subjects, notes, and revision schedule in one place.</p>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+        <div className="progress-card">
+          <span>Overall progress</span>
+          <strong>{progress}%</strong>
+          <div className="progress-track">
+            <div style={{ width: `${progress}%` }} />
+          </div>
+          <small>{completedTopics} of {totalTopics} topics completed</small>
+        </div>
+      </header>
+
+      {error && <div className="error">{error}</div>}
+
+      <section className="stats">
+        <div><span>Subjects</span><strong>{subjects.length}</strong></div>
+        <div><span>Topics completed</span><strong>{completedTopics}</strong></div>
+        <div><span>Revisions queued</span><strong>{revisions.length}</strong></div>
       </section>
 
-      <div className="ticks"></div>
+      <section className="content-grid">
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">YOUR CURRICULUM</p>
+              <h2>{selectedSubjectTitle ?? 'Subjects'}</h2>
+            </div>
+            <select
+              aria-label="Select subject"
+              value={selectedSubject}
+              onChange={(event) => setSelectedSubject(event.target.value)}
+            >
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>{subject.title}</option>
+              ))}
+            </select>
+          </div>
+          <div className="topic-list">
+            {topics.map((topic) => (
+              <article className="topic" key={topic.id}>
+                <div className={`topic-status ${topic.status}`}>
+                  {topic.status === 'completed' ? '✓' : '○'}
+                </div>
+                <div className="topic-copy">
+                  <h3>{topic.title}</h3>
+                  <p>Pages {topic.startPage}-{topic.endPage}</p>
+                </div>
+                {topic.status === 'completed' ? (
+                  <span className="done-label">Completed</span>
+                ) : (
+                  <button type="button" onClick={() => markComplete(topic)}>Mark complete</button>
+                )}
+              </article>
+            ))}
+            {!topics.length && <p className="empty">No topics found for this subject.</p>}
+          </div>
+        </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
+        <aside className="panel revision-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">SPACED REPETITION</p>
+              <h2>Upcoming revisions</h2>
+            </div>
+          </div>
+          {revisions.map((revision) => (
+            <div className="revision" key={revision.id}>
+              <div>
+                <strong>{revision.topicTitle}</strong>
+                <span>Stage {revision.stage} revision</span>
+              </div>
+              <time dateTime={revision.dueDate}>
+                {new Date(revision.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </time>
+            </div>
+          ))}
+        </aside>
       </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
